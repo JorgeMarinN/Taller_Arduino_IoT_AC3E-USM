@@ -1,0 +1,169 @@
+#include <Arduino_MKRIoTCarrier.h> // Biblioteca para controlar el MKR IoT Carrier.
+#include <Arduino.h>               // Biblioteca básica de Arduino.
+#include "pitches.h"               // Biblioteca que define las notas musicales.
+
+// Crear un objeto para interactuar con el MKR IoT Carrier.
+MKRIoTCarrier carrier;
+
+// Definir los estados posibles para los LEDs.
+enum LedState { OFF, BLINKING, ON }; // Apagado, parpadeando o encendido.
+LedState ledStates[5];               // Estado de los 5 LEDs.
+
+// Definir colores con intensidad reducida.
+uint32_t colors[3] = {
+  carrier.leds.Color(128, 0, 0),   // Rojo tenue.
+  carrier.leds.Color(0, 128, 0),   // Verde tenue.
+  carrier.leds.Color(0, 0, 128)    // Azul tenue.
+};
+
+int currentColor[5] = {0, 1, 2, 0, 1}; // Colores iniciales para los LEDs.
+
+unsigned long lastStateChange[5];  // Tiempo de la última transición de estado para cada LED.
+unsigned long stateDuration = 1000; // Duración del parpadeo en milisegundos.
+
+int score = 0;                     // Puntaje del jugador.
+bool colorMatched[3] = {false, false, false}; // Para registrar colores ya puntuados.
+
+bool gameWon = false;              // Indica si el juego ha sido ganado.
+unsigned long gameWonTime = 0;     // Momento en el que se gana el juego.
+unsigned long lastBlinkTime = 0;   // Tiempo del último parpadeo aleatorio.
+
+// Notas musicales y duraciones para la melodía de "YOU WIN".
+int melodyWin[] = { NOTE_G4, NOTE_A4, NOTE_B4, NOTE_A4, NOTE_G4, NOTE_F4, NOTE_E4, NOTE_D4, NOTE_E4, NOTE_F4, NOTE_G4 };
+int noteDurationsWin[] = { 4, 8, 8, 4, 4, 4, 4, 8, 8, 4, 4 };
+
+// Función para reproducir una melodía.
+void playMelody(int melody[], int noteDurations[], int length) {
+  for (int thisNote = 0; thisNote < length; thisNote++) {
+    int noteDuration = 1000 / noteDurations[thisNote]; // Calcular la duración de cada nota.
+    carrier.Buzzer.sound(melody[thisNote]);           // Reproduce la nota actual.
+    delay(noteDuration);                              // Espera el tiempo de la nota.
+    delay(noteDuration * 0.30);                       // Pausa entre notas.
+    carrier.Buzzer.noSound();                         // Apaga el buzzer.
+  }
+}
+
+void setup() {
+  // Inicializa el carrier, detiene el programa si hay error.
+  if (!carrier.begin()) {
+    while (1);
+  }
+
+  carrier.leds.fill(0);         // Apaga todos los LEDs.
+  carrier.leds.show();          // Actualiza el estado de los LEDs.
+
+  carrier.display.fillScreen(ST77XX_BLACK); // Limpia la pantalla.
+  carrier.display.setTextSize(2);           // Tamaño de texto en pantalla.
+  carrier.display.setTextColor(ST77XX_WHITE);
+  carrier.display.setCursor(20, 60);        // Posición del texto.
+  carrier.display.println("INICIA EL JUEGO!"); // Mensaje inicial.
+  delay(2000);
+
+  for (int i = 0; i < 5; i++) {
+    ledStates[i] = OFF;                  // Establece todos los LEDs en estado apagado.
+    lastStateChange[i] = millis();       // Inicializa el tiempo de transición.
+  }
+}
+
+void loop() {
+  carrier.Buttons.update(); // Actualiza el estado de los botones.
+
+  for (int i = 0; i < 5; i++) {
+    // Comprueba si se presionó el botón asociado al LED.
+    if (carrier.Buttons.getTouch((touchButtons)i)) {
+      ledStates[i] = (LedState)((ledStates[i] + 1) % 3); // Cambia al siguiente estado (OFF -> BLINKING -> ON).
+
+      // Si el LED se apaga, cambia el color.
+      if (ledStates[i] == OFF) {
+        currentColor[i] = (currentColor[i] + 1) % 3; // Cambia al siguiente color.
+      }
+    }
+
+    // Controla el comportamiento de cada estado.
+    switch (ledStates[i]) {
+      case OFF:
+        carrier.leds.setPixelColor(i, 0); // LED apagado.
+        break;
+      case BLINKING:
+        if ((millis() / 250) % 2 == 0) {
+          carrier.leds.setPixelColor(i, colors[currentColor[i]]); // LED encendido.
+        } else {
+          carrier.leds.setPixelColor(i, 0); // LED apagado.
+        }
+        break;
+      case ON:
+        carrier.leds.setPixelColor(i, colors[currentColor[i]]); // LED encendido.
+        break;
+    }
+  }
+
+  carrier.leds.show(); // Actualiza el estado de los LEDs.
+
+  // Comprueba si el jugador ha ganado.
+  if (checkWinCondition()) {
+    score++;                     // Incrementa el puntaje.
+    playPointBuzzer();           // Suena el buzzer para indicar el punto.
+
+    carrier.display.fillScreen(ST77XX_BLACK);
+    carrier.display.setCursor(20, 60);
+    carrier.display.setTextSize(2);
+
+    if (score >= 3) { // Verifica si se alcanzó el puntaje para ganar.
+      carrier.display.println("YOU WIN!");
+      playWinBuzzer(); // Suena el buzzer especial.
+      playMelody(melodyWin, noteDurationsWin, 11); // Reproduce la melodía de victoria.
+      delay(3000);    // Pausa antes de reiniciar.
+      resetGame();    // Reinicia el juego.
+    } else {
+      carrier.display.print("PUNTO: ");
+      carrier.display.println(score);
+      delay(2000);
+    }
+  }
+}
+
+// Comprueba si todos los LEDs están encendidos y del mismo color.
+bool checkWinCondition() {
+  int targetColor = currentColor[0]; // Color de referencia.
+  for (int i = 0; i < 5; i++) {
+    if (ledStates[i] != ON || currentColor[i] != targetColor) {
+      return false;
+    }
+  }
+  if (colorMatched[targetColor]) { // Evita puntuar el mismo color dos veces.
+    return false;
+  }
+  colorMatched[targetColor] = true;
+  return true;
+}
+
+// Función para reproducir un sonido al ganar un punto.
+void playPointBuzzer() {
+  carrier.Buzzer.sound(2000); // Tono de 2000 Hz.
+  delay(300);
+  carrier.Buzzer.noSound();
+}
+
+// Función para reproducir un sonido al ganar el juego.
+void playWinBuzzer() {
+  carrier.Buzzer.sound(1000); // Tono de 1000 Hz.
+  delay(500);
+  carrier.Buzzer.noSound();
+}
+
+// Reinicia el juego.
+void resetGame() {
+  score = 0;                       // Reinicia el puntaje.
+  gameWon = false;                 // Resetea el estado del juego.
+  for (int i = 0; i < 3; i++) {
+    colorMatched[i] = false;       // Resetea los colores puntuados.
+  }
+  for (int i = 0; i < 5; i++) {
+    ledStates[i] = OFF;            // Todos los LEDs apagados.
+    currentColor[i] = i % 3;       // Restablece los colores iniciales.
+  }
+  carrier.display.fillScreen(ST77XX_BLACK);
+  carrier.display.setCursor(20, 60);
+  carrier.display.println("INICIA EL JUEGO!"); // Mensaje inicial.
+  delay(2000);
+}

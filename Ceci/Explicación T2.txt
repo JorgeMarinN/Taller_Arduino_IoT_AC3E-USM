@@ -1,0 +1,251 @@
+#include <Arduino_MKRIoTCarrier.h> // Incluye la biblioteca para controlar el MKR IoT Carrier.
+
+MKRIoTCarrier carrier;             // Declara un objeto `carrier` para interactuar con el MKR IoT Carrier.
+bool isSubMenu = false;            // Variable para indicar si el usuario está en un submenú.
+int currentSubMenu = -1;           // Índice del submenú actual (-1 significa que no hay submenú activo).
+unsigned long buttonPressStart[5] = {0, 0, 0, 0, 0}; // Array para registrar el tiempo de presión de cada botón.
+unsigned long lastUpdate = 0;      // Variable para registrar el último momento en que se actualizó la pantalla.
+
+void setup() {
+  // Inicializa el MKR IoT Carrier. Si falla, detiene el programa.
+  if (!carrier.begin()) {          
+    while (1);                     // Bucle infinito para detener la ejecución si no se inicializa correctamente.
+  }
+
+  carrier.display.fillScreen(ST77XX_BLACK); // Limpia la pantalla, llenándola de color negro.
+  displayMainMenu();                       // Llama a la función para mostrar el menú principal.
+
+  // Inicializa el módulo IMU (giroscopio/acelerómetro). Si falla, detiene el programa.
+  if (!carrier.IMUmodule.begin()) {       
+    while (1);                            // Bucle infinito para detener la ejecución.
+  }
+}
+
+void loop() {
+  carrier.Buttons.update();               // Actualiza el estado de los botones del carrier.
+
+  // Itera sobre los 5 botones táctiles del carrier.
+  for (int i = 0; i < 5; i++) {           
+    // Si se detecta que un botón táctil ha sido presionado:
+    if (carrier.Buttons.getTouch((touchButtons)i)) { 
+      if (buttonPressStart[i] == 0) {     // Si es el inicio de la presión del botón:
+        buttonPressStart[i] = millis();   // Registra el momento en que se presionó.
+      } else if (millis() - buttonPressStart[i] >= 500) { // Si el botón se mantiene presionado durante 500 ms o más:
+        buttonPressStart[i] = 0;          // Reinicia el registro de presión para este botón.
+
+        // Si está en un submenú y se presiona un botón diferente al actual:
+        if (isSubMenu && i != currentSubMenu) { 
+          displayMainMenu();             // Regresa al menú principal.
+          isSubMenu = false;             // Marca que ya no está en un submenú.
+          currentSubMenu = -1;           // Reinicia el índice del submenú actual.
+        } else if (!isSubMenu) {         // Si no está en un submenú:
+          handleSubMenu(i);              // Llama a la función para manejar el submenú correspondiente.
+        }
+      }
+    } else {
+      buttonPressStart[i] = 0;           // Si el botón no está presionado, reinicia el registro de presión.
+    }
+  }
+
+  // Si está en un submenú:
+  if (isSubMenu) {                       
+    // Si ha pasado más de 2 segundos desde la última actualización:
+    if (millis() - lastUpdate >= 2000) { 
+      switch (currentSubMenu) {          // Verifica cuál submenú está activo.
+        case 0: updateTemperatureDisplay(); break; // Actualiza la pantalla de temperatura.
+        case 1: updateHumidityDisplay(); break;    // Actualiza la pantalla de humedad.
+        case 2: updatePressureDisplay(); break;    // Actualiza la pantalla de presión.
+        case 3: updateGasDisplay(); break;         // Actualiza la pantalla de gases.
+        case 4: updateGyroscopeDisplay(); break;   // Actualiza la pantalla del giroscopio.
+        default: break;                            // No realiza ninguna acción por defecto.
+      }
+      lastUpdate = millis();             // Actualiza el registro del último momento en que se actualizó la pantalla.
+    }
+  }
+}
+
+void displayMainMenu() {
+  carrier.display.fillScreen(ST77XX_YELLOW); // Cambia el fondo de la pantalla a amarillo.
+  carrier.display.setTextColor(ST77XX_CYAN); // Establece el color del texto a cian.
+  carrier.display.setTextSize(4);            // Define el tamaño del texto.
+  carrier.display.setCursor(70, 50);         // Posiciona el cursor para el texto principal.
+  carrier.display.println("MENU:");          // Muestra el título "MENU:".
+
+  // A continuación, se muestran las opciones del menú con diferentes colores y posiciones:
+  carrier.display.setTextSize(2);            // Cambia el tamaño del texto para las opciones.
+  carrier.display.setCursor(40, 90);         // Posiciona el cursor.
+  carrier.display.setTextColor(ST77XX_ORANGE); // Establece el color a naranja.
+  carrier.display.println("Temperatura: 00"); // Muestra la opción de temperatura.
+
+  carrier.display.setCursor(40, 110);        // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_BLACK); // Cambia el color a negro.
+  carrier.display.println("Humedad: 01 ");    // Muestra la opción de humedad.
+
+  carrier.display.setCursor(40, 130);        // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_MAGENTA); // Cambia el color a magenta.
+  carrier.display.println("Presion: 02 ");    // Muestra la opción de presión.
+
+  carrier.display.setCursor(40, 150);        // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_BLUE);  // Cambia el color a azul.
+  carrier.display.println("Gases: 03 ");      // Muestra la opción de gases.
+
+  carrier.display.setCursor(40, 170);        // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_RED);   // Cambia el color a rojo.
+  carrier.display.println("Giroscopio: 04 "); // Muestra la opción de giroscopio.
+}
+
+void handleSubMenu(int button) {
+  // Cambia el submenú activo según el botón presionado:
+  switch (button) {                  
+    case 0: displayTemperatureSubMenu(); currentSubMenu = 0; break; // Submenú de temperatura.
+    case 1: displayHumiditySubMenu(); currentSubMenu = 1; break;    // Submenú de humedad.
+    case 2: displayPressureSubMenu(); currentSubMenu = 2; break;    // Submenú de presión.
+    case 3: displayGasSubMenu(); currentSubMenu = 3; break;         // Submenú de gases.
+    case 4: displayGyroscopeSubMenu(); currentSubMenu = 4; break;   // Submenú de giroscopio.
+    default: break;                       // No realiza ninguna acción para valores por defecto.
+  }
+  isSubMenu = true;                        // Indica que el usuario está en un submenú.
+}
+void displayTemperatureSubMenu() {
+  carrier.display.fillScreen(ST77XX_ORANGE); // Cambia el fondo a color naranja.
+  carrier.display.setTextColor(ST77XX_WHITE); // Establece el texto en color blanco.
+  carrier.display.setTextSize(2);             // Configura el tamaño del texto.
+  carrier.display.setCursor(50, 100);         // Posiciona el cursor.
+  carrier.display.println("TEMPERATURA");     // Muestra el texto "TEMPERATURA".
+}
+
+void displayHumiditySubMenu() {
+  carrier.display.fillScreen(ST77XX_BLACK);   // Cambia el fondo a negro.
+  carrier.display.setTextColor(ST77XX_YELLOW); // Establece el texto en color amarillo.
+  carrier.display.setTextSize(2);             // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 100);         // Posiciona el cursor.
+  carrier.display.println("HUMEDAD");         // Muestra el texto "HUMEDAD".
+}
+
+void displayPressureSubMenu() {
+  carrier.display.fillScreen(ST77XX_MAGENTA); // Cambia el fondo a magenta.
+  carrier.display.setTextColor(ST77XX_CYAN);  // Establece el texto en color cian.
+  carrier.display.setTextSize(2);             // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 100);         // Posiciona el cursor.
+  carrier.display.println("PRESION");         // Muestra el texto "PRESION".
+}
+
+void displayGasSubMenu() {
+  carrier.display.fillScreen(ST77XX_BLUE);    // Cambia el fondo a azul.
+  carrier.display.setTextColor(ST77XX_WHITE); // Establece el texto en color blanco.
+  carrier.display.setTextSize(2);             // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 100);         // Posiciona el cursor.
+  carrier.display.println("GASES");           // Muestra el texto "GASES".
+}
+
+void displayGyroscopeSubMenu() {
+  carrier.display.fillScreen(ST77XX_RED);     // Cambia el fondo a rojo.
+  carrier.display.setTextColor(ST77XX_WHITE); // Establece el texto en color blanco.
+  carrier.display.setTextSize(2);             // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 100);         // Posiciona el cursor.
+  carrier.display.println("GIROSCOPIO");      // Muestra el texto "GIROSCOPIO".
+}
+
+void updateTemperatureDisplay() {
+  float temperatureC = carrier.Env.readTemperature(); // Lee la temperatura en grados Celsius.
+  float temperatureF = (temperatureC * 9 / 5) + 32;   // Convierte a grados Fahrenheit.
+  float temperatureK = temperatureC + 273.15;         // Convierte a Kelvin.
+
+  carrier.display.fillScreen(ST77XX_ORANGE);          // Cambia el fondo a color naranja.
+  carrier.display.setTextColor(ST77XX_WHITE);         // Establece el texto en color blanco.
+  carrier.display.setTextSize(2);                     // Configura el tamaño del texto.
+  carrier.display.setCursor(50, 70);                  // Posiciona el cursor.
+  carrier.display.println("Temperatura:");            // Muestra el título "Temperatura:".
+
+  carrier.display.setCursor(60, 110);                 // Cambia la posición del cursor.
+  carrier.display.print(temperatureC, 2);             // Muestra la temperatura en Celsius con 2 decimales.
+  carrier.display.println(" C");                      // Añade el texto " C".
+
+  carrier.display.setCursor(60, 130);                 // Cambia la posición del cursor.
+  carrier.display.print(temperatureF, 2);             // Muestra la temperatura en Fahrenheit con 2 decimales.
+  carrier.display.println(" F");                      // Añade el texto " F".
+
+  carrier.display.setCursor(60, 150);                 // Cambia la posición del cursor.
+  carrier.display.print(temperatureK, 2);             // Muestra la temperatura en Kelvin con 2 decimales.
+  carrier.display.println(" K");                      // Añade el texto " K".
+}
+
+void updateHumidityDisplay() {
+  float humidity = carrier.Env.readHumidity();        // Lee la humedad relativa en porcentaje.
+
+  carrier.display.fillScreen(ST77XX_BLACK);           // Cambia el fondo a negro.
+  carrier.display.setTextColor(ST77XX_YELLOW);        // Establece el texto en color amarillo.
+  carrier.display.setTextSize(2);                     // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 70);                  // Posiciona el cursor.
+  carrier.display.println("Humedad:");                // Muestra el texto "Humedad:".
+
+  carrier.display.setCursor(70, 100);                 // Cambia la posición del cursor.
+  carrier.display.print(humidity, 2);                 // Muestra la humedad con 2 decimales.
+  carrier.display.println(" %");                      // Añade el texto " %".
+}
+
+void updatePressureDisplay() {
+  float pressure = carrier.Pressure.readPressure() / 100.0; // Lee la presión en hectopascales.
+
+  carrier.display.fillScreen(ST77XX_MAGENTA);              // Cambia el fondo a magenta.
+  carrier.display.setTextColor(ST77XX_CYAN);               // Establece el texto en color cian.
+  carrier.display.setTextSize(2);                          // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 70);                       // Posiciona el cursor.
+  carrier.display.println("Presion:");                     // Muestra el texto "Presion:".
+
+  carrier.display.setCursor(70, 100);                      // Cambia la posición del cursor.
+  carrier.display.print(pressure, 2);                      // Muestra la presión con 2 decimales.
+  carrier.display.println(" hPa");                         // Añade el texto " hPa".
+}
+
+void updateGasDisplay() {
+  float gasResistor = carrier.AirQuality.readGasResistor(); // Lee la resistencia de gas en ohmios.
+  float volatileOrganicCompounds = carrier.AirQuality.readVOC(); // Lee los compuestos orgánicos volátiles (VOC) en ppm.
+  float co2 = carrier.AirQuality.readCO2();                  // Lee el nivel de CO2 en ppm.
+
+  carrier.display.fillScreen(ST77XX_BLUE);                  // Cambia el fondo a azul.
+  carrier.display.setTextColor(ST77XX_WHITE);               // Establece el texto en color blanco.
+  carrier.display.setTextSize(2);                           // Configura el tamaño del texto.
+  carrier.display.setCursor(80, 70);                        // Posiciona el cursor.
+  carrier.display.println("Gases:");                        // Muestra el texto "Gases:".
+
+  carrier.display.setCursor(20, 100);                       // Cambia la posición del cursor.
+  carrier.display.print("Res: ");                           // Muestra el texto "Res: ".
+  carrier.display.println(gasResistor, 2);                  // Muestra la resistencia con 2 decimales.
+
+  carrier.display.setCursor(25, 120);                       // Cambia la posición del cursor.
+  carrier.display.print("VOC: ");                           // Muestra el texto "VOC: ".
+  carrier.display.println(volatileOrganicCompounds, 2);     // Muestra los VOC con 2 decimales.
+
+  carrier.display.setCursor(25, 140);                       // Cambia la posición del cursor.
+  carrier.display.print("CO2: ");                           // Muestra el texto "CO2: ".
+  carrier.display.println(co2, 2);                          // Muestra el nivel de CO2 con 2 decimales.
+}
+
+void updateGyroscopeDisplay() {
+  float x, y, z;                                            // Variables para las coordenadas del giroscopio.
+
+  // Si hay datos de aceleración disponibles:
+  if (carrier.IMUmodule.accelerationAvailable()) {         
+    carrier.IMUmodule.readAcceleration(x, y, z);           // Lee las aceleraciones en los ejes x, y, z.
+
+    carrier.display.fillScreen(ST77XX_RED);                // Cambia el fondo a rojo.
+    carrier.display.setTextColor(ST77XX_WHITE);            // Establece el texto en color blanco.
+    carrier.display.setTextSize(2);                        // Configura el tamaño del texto.
+    carrier.display.setCursor(70, 70);                     // Posiciona el cursor.
+    carrier.display.println("Giroscopio:");                // Muestra el texto "Giroscopio:".
+
+    carrier.display.setCursor(70, 100);                    // Cambia la posición del cursor.
+    carrier.display.print("x: ");                          // Muestra el texto "x: ".
+    carrier.display.println(x, 2);                         // Muestra el valor de la aceleración en x con 2 decimales.
+
+    carrier.display.setCursor(70, 120);                    // Cambia la posición del cursor.
+    carrier.display.print("y: ");                          // Muestra el texto "y: ".
+    carrier.display.println(y, 2);                         // Muestra el valor de la aceleración en y con 2 decimales.
+
+    carrier.display.setCursor(70, 140);                    // Cambia la posición del cursor.
+    carrier.display.print("z: ");                          // Muestra el texto "z: ".
+    carrier.display.println(z, 2);                         // Muestra el valor de la aceleración en z con 2 decimales.
+  }
+}
+

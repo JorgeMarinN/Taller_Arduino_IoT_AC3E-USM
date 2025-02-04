@@ -1,0 +1,174 @@
+#include <Arduino.h>                   // Incluye la biblioteca principal de Arduino.
+#include <Arduino_MKRIoTCarrier.h>     // Incluye la biblioteca para manejar el MKR IoT Carrier.
+#include <Arduino_APDS9960.h>          // Incluye la biblioteca para manejar el sensor APDS9960.
+#include "pitches.h"                   // Incluye las notas musicales para los tonos del buzzer.
+
+MKRIoTCarrier carrier;                 // Crea un objeto `carrier` para interactuar con el MKR IoT Carrier.
+
+int currentMenu = 0;                   // Variable para rastrear el menú actual (0 = menú principal).
+
+void setup() {
+  carrier.begin();                     // Inicializa el MKR IoT Carrier.
+  carrier.display.fillScreen(ST77XX_BLACK); // Limpia la pantalla con color negro.
+
+  if (!APDS.begin()) {                 // Inicializa el sensor APDS9960. Si falla:
+    carrier.display.fillScreen(ST77XX_RED); // Cambia la pantalla a color rojo para indicar error.
+    carrier.display.setCursor(10, 60);      // Establece el cursor para el texto del error.
+    carrier.display.setTextSize(2);         // Ajusta el tamaño del texto.
+    carrier.display.setTextColor(ST77XX_WHITE); // Establece el color del texto a blanco.
+    carrier.display.println("Error APDS!");    // Muestra el mensaje de error.
+    while (true);                       // Detiene la ejecución en un bucle infinito.
+  }
+
+  carrier.leds.begin();                // Inicializa los LEDs del MKR IoT Carrier.
+  displayMainMenu();                   // Muestra el menú principal en la pantalla.
+}
+
+void loop() {
+  carrier.Buttons.update();            // Actualiza el estado de los botones táctiles del carrier.
+
+  // Comprueba si se presiona alguno de los botones táctiles y ejecuta la acción correspondiente.
+  if (carrier.Buttons.getTouch(TOUCH1)) {       // Si se presiona el botón táctil 1:
+    detectGestures();                           // Llama a la función para detectar gestos.
+  } else if (carrier.Buttons.getTouch(TOUCH2)) { // Si se presiona el botón táctil 2:
+    detectColor();                              // Llama a la función para detectar colores.
+  } else if (carrier.Buttons.getTouch(TOUCH4)) { // Si se presiona el botón táctil 4:
+    detectProximity();                          // Llama a la función para detectar proximidad.
+  } else if (carrier.Buttons.getTouch(TOUCH3)) { // Si se presiona el botón táctil 3:
+    displayMainMenu();                          // Regresa al menú principal.
+  }
+}
+
+void displayMainMenu() {
+  currentMenu = 0;                              // Establece el menú actual como el principal.
+  carrier.display.fillScreen(ST77XX_ORANGE);    // Limpia la pantalla con color naranja.
+  carrier.display.setTextColor(ST77XX_CYAN);    // Configura el color del texto a cian.
+  carrier.display.setTextSize(5);               // Ajusta el tamaño del texto.
+  carrier.display.setCursor(50, 50);            // Establece la posición del cursor.
+  carrier.display.println("MENU:");             // Escribe "MENU:" en la pantalla.
+
+  // Muestra las opciones del menú con diferentes colores y posiciones.
+  carrier.display.setTextSize(2);               // Cambia el tamaño del texto para las opciones.
+  carrier.display.setCursor(40, 110);           // Posiciona el cursor.
+  carrier.display.setTextColor(ST77XX_WHITE);   // Cambia el color del texto a blanco.
+  carrier.display.println("Gestos: 01 ");       // Opción para gestos.
+
+  carrier.display.setCursor(40, 130);           // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_MAGENTA); // Cambia el color del texto a magenta.
+  carrier.display.println("Colores: 02");       // Opción para colores.
+
+  carrier.display.setCursor(40, 150);           // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_BLUE);    // Cambia el color del texto a azul.
+  carrier.display.println("Proximidad: 04");    // Opción para proximidad.
+
+  carrier.display.setCursor(40, 170);           // Cambia la posición del cursor.
+  carrier.display.setTextColor(ST77XX_RED);     // Cambia el color del texto a rojo.
+  carrier.display.println("Regresar: 03");      // Opción para regresar.
+}
+
+void detectGestures() {
+  currentMenu = 1;                              // Cambia el menú actual al de gestos.
+  carrier.display.fillScreen(ST77XX_WHITE);     // Limpia la pantalla con color blanco.
+  carrier.display.setTextSize(4);               // Configura el tamaño del texto.
+  carrier.display.setTextColor(ST77XX_BLACK);   // Cambia el color del texto a negro.
+  carrier.display.setCursor(50, 100);           // Posiciona el cursor.
+  carrier.display.println("GESTOS");            // Muestra el texto "GESTOS".
+
+  while (true) {                                // Bucle infinito para detectar gestos.
+    carrier.Buttons.update();                  // Actualiza el estado de los botones.
+
+    if (carrier.Buttons.getTouch(TOUCH3)) {    // Si se presiona el botón táctil 3:
+      displayMainMenu();                       // Regresa al menú principal.
+      return;                                  // Sale de la función.
+    }
+
+    if (APDS.gestureAvailable()) {             // Si hay un gesto disponible:
+      int gesture = APDS.readGesture();        // Lee el tipo de gesto detectado.
+      carrier.display.fillScreen(ST77XX_WHITE); // Limpia la pantalla con color blanco.
+
+      // Maneja los gestos detectados y muestra gráficos en pantalla.
+      switch (gesture) {
+        case GESTURE_UP:                       // Gesto hacia arriba:
+          carrier.display.fillTriangle(60, 120, 120, 80, 120, 160, ST77XX_YELLOW); // Dibuja una flecha hacia arriba.
+          carrier.display.fillRect(120, 100, 60, 40, ST77XX_YELLOW);               // Dibuja el rectángulo de la flecha.
+          playTone1(NOTE_B0, NOTE_C1);         // Reproduce un tono asociado al gesto.
+          break;
+
+        case GESTURE_DOWN:                     // Gesto hacia abajo:
+          carrier.display.fillTriangle(180, 120, 120, 80, 120, 160, ST77XX_BLUE);  // Flecha hacia abajo.
+          carrier.display.fillRect(60, 100, 60, 40, ST77XX_BLUE);                  // Rectángulo asociado.
+          playTone1(NOTE_B0, NOTE_C1);         // Reproduce un tono.
+          break;
+
+        case GESTURE_LEFT:                     // Gesto hacia la izquierda:
+          carrier.display.fillTriangle(120, 180, 80, 120, 160, 120, ST77XX_MAGENTA); // Flecha hacia la izquierda.
+          carrier.display.fillRect(100, 60, 40, 60, ST77XX_MAGENTA);                // Rectángulo asociado.
+          playTone1(NOTE_B0, NOTE_C1);         // Reproduce un tono.
+          break;
+
+        case GESTURE_RIGHT:                    // Gesto hacia la derecha:
+          carrier.display.fillTriangle(120, 60, 80, 120, 160, 120, ST77XX_RED);     // Flecha hacia la derecha.
+          carrier.display.fillRect(100, 120, 40, 60, ST77XX_RED);                   // Rectángulo asociado.
+          playTone1(NOTE_B0, NOTE_C1);         // Reproduce un tono.
+          break;
+
+        default:                               // Si no se detecta un gesto válido:
+          carrier.display.setCursor(80, 60);  // Posiciona el cursor.
+          carrier.display.setTextColor(ST77XX_BLACK); // Establece el color del texto a negro.
+          carrier.display.println("NO DETECTADO");    // Muestra "NO DETECTADO".
+          break;
+      }
+
+      Serial.print("Gesto detectado: ");       // Imprime en el monitor serie el gesto detectado.
+      Serial.println(gesture);                // Muestra el valor del gesto.
+
+      delay(1000);                            // Pausa de 1 segundo antes de limpiar la pantalla.
+      carrier.display.fillScreen(ST77XX_WHITE); // Limpia la pantalla.
+      carrier.display.setTextColor(ST77XX_BLACK); // Configura el texto a color negro.
+      carrier.display.setTextSize(4);         // Ajusta el tamaño del texto.
+      carrier.display.setCursor(50, 100);     // Posiciona el cursor.
+      carrier.display.println("GESTOS");      // Muestra "GESTOS".
+    }
+  }
+}
+
+void playGestureTone(int firstNote, int secondNote) {
+  carrier.Buzzer.sound(firstNote);                 // Reproduce el primer tono en el buzzer.
+  delay(50);                                       // Espera 50 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+  delay(10);                                       // Pausa de 10 ms.
+  carrier.Buzzer.sound(secondNote);                // Reproduce el segundo tono.
+  delay(50);                                       // Espera 50 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+}
+
+void playTone1(int firstNote, int secondNote) {
+  carrier.Buzzer.sound(firstNote);                 // Reproduce el primer tono en el buzzer.
+  delay(50);                                       // Espera 50 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+  delay(10);                                       // Pausa de 10 ms.
+  carrier.Buzzer.sound(secondNote);                // Reproduce el segundo tono.
+  delay(50);                                       // Espera 50 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+}
+
+void playTone2(int firstNote, int secondNote) {
+  carrier.Buzzer.sound(firstNote);                 // Reproduce el primer tono en el buzzer.
+  delay(30);                                       // Espera 30 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+  delay(10);                                       // Pausa de 10 ms.
+  carrier.Buzzer.sound(secondNote);                // Reproduce el segundo tono.
+  delay(30);                                       // Espera 30 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+}
+
+void playTone3(int firstNote, int secondNote) {
+  carrier.Buzzer.sound(firstNote);                 // Reproduce el primer tono en el buzzer.
+  delay(150);                                      // Espera 150 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+  delay(10);                                       // Pausa de 10 ms.
+  carrier.Buzzer.sound(secondNote);                // Reproduce el segundo tono.
+  delay(15);                                       // Espera 15 ms.
+  carrier.Buzzer.noSound();                        // Apaga el buzzer.
+}
+

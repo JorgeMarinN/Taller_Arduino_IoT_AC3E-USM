@@ -1,0 +1,230 @@
+#include <Arduino_MKRIoTCarrier.h> // Biblioteca para interactuar con el MKR IoT Carrier.
+#include <WiFiNINA.h>             // Biblioteca para manejar conexiones Wi-Fi.
+#include <ArduinoBLE.h>           // Biblioteca para manejar conexiones BLE (Bluetooth Low Energy).
+
+MKRIoTCarrier carrier;            // Instancia del MKR IoT Carrier para usar sus funciones.
+String ssidList[6];               // Arreglo para almacenar hasta 6 nombres de redes Wi-Fi detectadas (SSID).
+int rssiList[6];                  // Arreglo para almacenar los niveles de señal de las redes detectadas.
+int channelList[6];               // Arreglo para almacenar los canales de las redes detectadas.
+int networkCount = 0;             // Contador de redes Wi-Fi detectadas.
+int currentSelection = 0;         // Índice de la red seleccionada en el menú.
+BLEDevice devices[20];            // Arreglo para almacenar hasta 20 dispositivos BLE detectados.
+int deviceCount = 0;              // Contador de dispositivos BLE detectados.
+BLEService genericService("180A"); // Servicio genérico BLE con UUID "180A".
+BLEStringCharacteristic readWriteCharacteristic("2A29", BLERead | BLEWrite, 20); // Característica BLE para lectura y escritura.
+bool bleConnected = false;        // Variable para indicar si hay una conexión BLE activa.
+
+void setup() {
+  Serial.begin(9600);             // Inicializa la comunicación serie a 9600 baudios.
+  while (!Serial);                // Espera a que se abra el monitor serie (para depuración).
+
+  if (!carrier.begin()) {         // Inicializa el MKR IoT Carrier. Si falla:
+    Serial.println("ERROR!");     // Muestra un mensaje de error en el monitor serie.
+    while (1);                    // Detiene el programa en un bucle infinito.
+  }
+
+  if (!BLE.begin()) {             // Inicializa el módulo BLE. Si falla:
+    Serial.println("ERROR E INICIA BLE"); // Muestra un mensaje de error en el monitor serie.
+    while (1);                    // Detiene el programa en un bucle infinito.
+  }
+
+  Serial.println("🖥️📡🌐 Sistema Iniciado 🖥️📡🌐"); // Mensaje en el monitor serie indicando que el sistema está listo.
+  showMenu();                     // Llama a la función que muestra el menú principal.
+}
+
+void loop() {
+  if (Serial.available() > 0) {   // Comprueba si hay datos disponibles en el monitor serie.
+    String input = Serial.readStringUntil('\n'); // Lee la entrada del usuario hasta un salto de línea.
+    if (input == "1") {           // Si el usuario ingresa "1":
+      handleWiFi();               // Llama a la función para manejar Wi-Fi.
+    } else if (input == "4") {    // Si el usuario ingresa "4":
+      handleBLE();                // Llama a la función para manejar BLE.
+    } else if (input.equalsIgnoreCase("m")) { // Si el usuario ingresa "m" (mayúscula o minúscula):
+      showMenu();                 // Regresa al menú principal.
+    }
+  }
+}
+
+void showMenu() {
+  carrier.display.fillScreen(ST77XX_BLUE); // Limpia la pantalla con color azul.
+  carrier.display.setTextColor(ST77XX_WHITE); // Establece el color del texto a blanco.
+  carrier.display.setTextSize(4);         // Configura el tamaño del texto.
+  carrier.display.setCursor(70, 50);      // Posiciona el cursor.
+  carrier.display.println("MENU");        // Escribe "MENU" en la pantalla.
+
+  // Muestra las opciones del menú.
+  carrier.display.setCursor(40, 110);     // Posiciona el cursor para la primera opción.
+  carrier.display.setTextSize(3);         // Configura el tamaño del texto para las opciones.
+  carrier.display.println("WI-FI: 01");   // Escribe "WI-FI: 01" en la pantalla.
+
+  carrier.display.setCursor(40, 150);     // Posiciona el cursor para la segunda opción.
+  carrier.display.println("BLE: 04");    // Escribe "BLE: 04" en la pantalla.
+
+  // Muestra las opciones en el monitor serie para interacción del usuario.
+  Serial.println("MENU:");               // Escribe "MENU:" en el monitor serie.
+  Serial.println("1) Escanear Wi-Fi");   // Opción para escanear Wi-Fi.
+  Serial.println("4) Escanear BLE");     // Opción para escanear BLE.
+  Serial.println("Escribe 'm' para volver al menú desde cualquier punto."); // Instrucción adicional.
+}
+
+void handleWiFi() {
+  carrier.display.fillScreen(ST77XX_ORANGE); // Limpia la pantalla con color naranja.
+  carrier.display.setCursor(20, 100);       // Posiciona el cursor.
+  carrier.display.setTextSize(3);           // Configura el tamaño del texto.
+  carrier.display.setTextColor(ST77XX_BLACK); // Establece el color del texto a negro.
+  carrier.display.println("ESCANEANDO");    // Muestra "ESCANEANDO" en la pantalla.
+
+  networkCount = min(WiFi.scanNetworks(), 6); // Escanea redes Wi-Fi y almacena hasta un máximo de 6.
+  if (networkCount == 0) {                   // Si no se detectan redes:
+    Serial.println("No se encontraron redes."); // Muestra un mensaje en el monitor serie.
+    carrier.display.println("INEXISTENTE");    // Muestra "INEXISTENTE" en la pantalla.
+    delay(2000);                              // Pausa de 2 segundos.
+    showMenu();                               // Regresa al menú principal.
+    return;                                   // Sale de la función.
+  }
+
+  // Almacena los detalles de las redes detectadas.
+  for (int i = 0; i < networkCount && i < 6; i++) {
+    ssidList[i] = WiFi.SSID(i);              // Almacena el nombre de la red (SSID).
+    rssiList[i] = WiFi.RSSI(i);              // Almacena el nivel de señal (RSSI).
+    channelList[i] = WiFi.channel(i);        // Almacena el canal de la red.
+  }
+
+  Serial.println("Redes detectadas:");       // Muestra las redes detectadas en el monitor serie.
+  for (int i = 0; i < networkCount; i++) {  // Itera por cada red detectada.
+    Serial.print(i + 1);                    // Muestra el índice de la red.
+    Serial.print(") SSID: ");               // Muestra "SSID: ".
+    Serial.print(ssidList[i]);              // Muestra el nombre de la red.
+    Serial.print(", RSSI: ");               // Muestra "RSSI: ".
+    Serial.print(rssiList[i]);              // Muestra el nivel de señal.
+    Serial.print(", Canal: ");              // Muestra "Canal: ".
+    Serial.println(channelList[i]);         // Muestra el canal de la red.
+  }
+
+  Serial.println("Elige una red (1-6) o escribe 'm' para volver al menú:"); // Instrucción para seleccionar red.
+  selectNetwork();                         // Llama a la función para seleccionar una red.
+}
+void selectNetwork() {
+  while (true) {                           // Bucle infinito para esperar la selección de red.
+    if (Serial.available() > 0) {          // Comprueba si hay datos disponibles en el monitor serie.
+      String input = Serial.readStringUntil('\n'); // Lee la entrada del usuario hasta un salto de línea.
+      
+      // Si el usuario ingresa un número válido dentro del rango de redes detectadas:
+      if (input.toInt() > 0 && input.toInt() <= networkCount) {
+        connectToNetwork(input.toInt() - 1); // Llama a la función para conectar a la red seleccionada.
+        return;                              // Sale de la función.
+      } else if (input.equalsIgnoreCase("m")) { // Si el usuario ingresa "m" (para volver al menú):
+        showMenu();                          // Regresa al menú principal.
+        return;                              // Sale de la función.
+      }
+    }
+  }
+}
+
+void connectToNetwork(int index) {
+  carrier.display.fillScreen(ST77XX_MAGENTA); // Limpia la pantalla con color magenta.
+  carrier.display.setTextSize(2);             // Configura el tamaño del texto.
+  carrier.display.setCursor(30, 100);         // Posiciona el cursor.
+  carrier.display.setTextColor(ST77XX_WHITE); // Establece el color del texto a blanco.
+  carrier.display.println("Introduce clave:"); // Muestra el texto "Introduce clave:".
+
+  Serial.print("Conectando a ");              // Muestra "Conectando a" en el monitor serie.
+  Serial.print(ssidList[index]);              // Muestra el nombre de la red seleccionada.
+  Serial.println(". Introduce clave:");       // Solicita al usuario la clave de la red.
+
+  while (!Serial.available());                // Espera a que el usuario ingrese la clave.
+  String password = Serial.readStringUntil('\n'); // Lee la clave ingresada por el usuario.
+
+  WiFi.begin(ssidList[index].c_str(), password.c_str()); // Intenta conectar a la red Wi-Fi.
+
+  carrier.display.setTextSize(3);             // Configura el tamaño del texto.
+  carrier.display.setCursor(40, 130);         // Posiciona el cursor.
+  carrier.display.println("SINCRONIZANDO");   // Muestra "SINCRONIZANDO" en la pantalla.
+
+  int attempts = 0;                           // Contador de intentos de conexión.
+  while (WiFi.status() != WL_CONNECTED && attempts < 6) { // Reintenta hasta 6 veces.
+    delay(1000);                              // Espera 1 segundo entre intentos.
+    Serial.print(".");                        // Muestra un punto en el monitor serie por cada intento.
+    attempts++;                               // Incrementa el contador de intentos.
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {        // Si se conecta exitosamente:
+    Serial.println("CONECTADO");              // Muestra "CONECTADO" en el monitor serie.
+    Serial.print("Direccion IP: ");           // Muestra "Direccion IP: " en el monitor serie.
+    Serial.println(WiFi.localIP());           // Muestra la dirección IP obtenida.
+
+    carrier.display.fillScreen(ST77XX_BLACK); // Limpia la pantalla con color negro.
+    carrier.display.setTextSize(2);           // Configura el tamaño del texto.
+    carrier.display.setCursor(40, 100);       // Posiciona el cursor.
+    carrier.display.setTextColor(ST77XX_GREEN); // Establece el color del texto a verde.
+    carrier.display.println("CONECTADO");     // Muestra "CONECTADO" en la pantalla.
+    carrier.display.setCursor(20, 130);       // Cambia la posición del cursor.
+    carrier.display.print("IP: ");            // Muestra "IP: " en la pantalla.
+    carrier.display.println(WiFi.localIP());  // Muestra la dirección IP en la pantalla.
+  } else {                                    // Si no se conecta:
+    Serial.println("ERROR: No se pudo conectar."); // Muestra un mensaje de error en el monitor serie.
+    carrier.display.fillScreen(ST77XX_RED);   // Limpia la pantalla con color rojo.
+    carrier.display.setTextSize(3);           // Configura el tamaño del texto.
+    carrier.display.setCursor(80, 100);       // Posiciona el cursor.
+    carrier.display.setTextColor(ST77XX_WHITE); // Establece el color del texto a blanco.
+    carrier.display.println("ERROR");         // Muestra "ERROR" en la pantalla.
+    delay(2000);                              // Pausa de 2 segundos.
+    showMenu();                               // Regresa al menú principal.
+  }
+}
+
+void handleBLE() {
+  BLE.setLocalName("CARRIER");               // Establece el nombre del dispositivo BLE.
+  BLE.setAdvertisedService(genericService);  // Asocia el servicio genérico con el anuncio BLE.
+  genericService.addCharacteristic(readWriteCharacteristic); // Agrega la característica al servicio.
+  BLE.addService(genericService);            // Añade el servicio al periférico BLE.
+  BLE.advertise();                           // Comienza a anunciar el dispositivo.
+
+  Serial.println("Esperando conexión BLE..."); // Muestra un mensaje en el monitor serie.
+  carrier.display.fillScreen(ST77XX_BLACK);  // Limpia la pantalla con color negro.
+  carrier.display.setCursor(60, 100);        // Posiciona el cursor.
+  carrier.display.setTextSize(2);            // Configura el tamaño del texto.
+  carrier.display.setTextColor(ST77XX_GREEN); // Establece el color del texto a verde.
+  carrier.display.println("LISTO");          // Muestra "LISTO" en la pantalla.
+
+  while (true) {                             // Bucle infinito para manejar conexiones BLE.
+    BLEDevice central = BLE.central();       // Comprueba si hay un dispositivo central conectado.
+
+    if (central) {                           // Si hay un dispositivo conectado:
+      bleConnected = true;                   // Marca la conexión BLE como activa.
+      Serial.print("Conectado a: ");         // Muestra "Conectado a: " en el monitor serie.
+      Serial.println(central.address());     // Muestra la dirección del dispositivo conectado.
+
+      carrier.display.fillScreen(ST77XX_BLACK); // Limpia la pantalla con color negro.
+      carrier.display.setCursor(60, 100);    // Posiciona el cursor.
+      carrier.display.setTextSize(2);        // Configura el tamaño del texto.
+      carrier.display.setTextColor(ST77XX_GREEN); // Establece el color del texto a verde.
+      carrier.display.println("ENLAZADO");   // Muestra "ENLAZADO" en la pantalla.
+
+      while (central.connected()) {          // Mientras el dispositivo esté conectado:
+        if (Serial.available()) {            // Comprueba si hay datos disponibles en el monitor serie.
+          String input = Serial.readStringUntil('\n'); // Lee la entrada del usuario.
+          if (input.equalsIgnoreCase("X")) { // Si el usuario ingresa "X":
+            BLE.stopAdvertise();             // Detiene la publicidad BLE.
+            BLE.disconnect();                // Desconecta el dispositivo BLE.
+            bleConnected = false;            // Marca la conexión BLE como inactiva.
+            showMenu();                      // Regresa al menú principal.
+            return;                          // Sale de la función.
+          }
+        }
+      }
+
+      Serial.println("Desvinculado");        // Muestra "Desvinculado" en el monitor serie.
+      carrier.display.fillScreen(ST77XX_RED); // Limpia la pantalla con color rojo.
+      carrier.display.setCursor(50, 100);    // Posiciona el cursor.
+      carrier.display.setTextSize(2);        // Configura el tamaño del texto.
+      carrier.display.setTextColor(ST77XX_WHITE); // Establece el color del texto a blanco.
+      carrier.display.println("DESVINCULADO"); // Muestra "DESVINCULADO" en la pantalla.
+      delay(2000);                           // Pausa de 2 segundos.
+      showMenu();                            // Regresa al menú principal.
+      return;                                // Sale de la función.
+    }
+  }
+}
+
+
